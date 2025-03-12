@@ -588,6 +588,36 @@ AnnualIncrements <- function(sim){
     ) |> Cache()
   }
   
+  if (!suppliedElsewhere("ecoregionLayer", sim)){
+    sim$ecoregionLayer <- Cache(prepInputs(targetFile = "ecodistricts.shp",
+                                           archive = asPath("ecodistrict_shp.zip"),
+                                           url = extractURL("ecoregionLayer", sim),
+                                           alsoExtract = "similar",
+                                           destinationPath = dPath,
+                                           writeTo = NULL,
+                                           to = sim$rasterToMatch,
+                                           fun = getOption("reproducible.shapefileRead"),
+                                           overwrite = TRUE),
+                                .functionName = "prepInputs_forEcoregionLayer",
+                                userTags = c("prepInputsEcoDistrict_SA", currentModule(sim), cacheTags))
+  }
+  
+  # combine ecoregion in CBM and in LandR
+  if (!suppliedElsewhere("ecoregionRst", sim)){
+    ecoregionLayer <- fixErrors(ecoregionLayer)
+    ecoregionMapSF <- sf::st_as_sf(ecoregionLayer) |>
+      sf::st_transform(crs = sf::st_crs(rasterToMatch))
+    if (!is.null(ecoregionMapSF$ECODISTRIC)) {
+      ecoregionMapSF$ecoregionLayerField <- as.factor(ecoregionMapSF$ECODISTRIC)
+    } else {
+      ecoregionMapSF$ecoregionLayerField <- as.numeric(row.names(ecoregionMapSF))
+    }
+    ecoregionMapSF$ecoregionLayerFieldInt <- as.integer(ecoregionMapSF$ecoregionLayerField)
+    ecoregionRst <- terra::rasterize(ecoregionMapSF, rasterToMatchLarge,
+                                     field = "ecoregionLayerFieldInt")
+    browser()
+    ecoregionRst <- mergeMaps(ecoregionRst, sim$spuRaster)
+  }
   
   # 2. NFI params
   if (!suppliedElsewhere("table6", sim)) {
