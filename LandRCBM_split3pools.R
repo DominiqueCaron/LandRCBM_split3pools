@@ -56,7 +56,13 @@ defineModule(sim, list(
                               "It will be overlaid with landcover to generate classes for every ecoregion/LCC combination.",
                               "It must have same extent and crs as `studyAreaLarge`.",
                               "It is superseded by `sim$ecoregionRst` if that object is supplied by the user"),
-                 sourceURL = "https://sis.agr.gc.ca/cansis/nsdb/ecostrat/district/ecodistrict_shp.zip"),
+                 sourceURL = "https://sis.agr.gc.ca/cansis/nsdb/ecostrat/district/ecodistrict_shp.zip"),       
+    expectsInput("ecozone", "sf",
+                 desc = paste(""),
+                 sourceURL = "http://sis.agr.gc.ca/cansis/nsdb/ecostrat/zone/ecozone_shp.zip"),
+    expectsInput("adminBoundary", "sf",
+                 desc = paste(""),
+                 sourceURL = "https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lpr_000a21a_e.zip"),
     expectsInput(
       ## TODO Yield module will be modified to provide required format
       objectName = "yieldTables", objectClass = "data.table",
@@ -90,11 +96,6 @@ defineModule(sim, list(
       objectName = "rasterToMatch", objectClass =  "SpatRaster",
       desc = "template raster to use for simulations; defaults to RIA study area", ## TODO
       sourceURL = "https://drive.google.com/file/d/1zJRi968_FPD68fY6v_8-_kgAIOAYUyJ2/view?usp=drive_link"
-    ),
-    expectsInput(
-      objectName = "spuRaster", objectClass = "SpatRaster",
-      desc = "Raster has spatial units for each pixel",
-      sourceURL = "https://drive.google.com/file/d/1D3O0Uj-s_QEgMW7_X-NhVsEZdJ29FBed"
     ),
     expectsInput("sppColorVect", "character",
                  desc = paste("A named vector of colors to use for plotting.")),
@@ -131,7 +132,16 @@ defineModule(sim, list(
       objectClass = "data.table",
       desc = paste("Increments for each cohort and incrementPixelGroups (in tonnes of carbon/ha).")
     ),
-    
+    createsOutput(
+      objectName = "ecoregionLayer",
+      objectClass = "sf",
+      desc = paste("")
+    ),
+    createsOutput(
+      objectName = "spuRaster",
+      objectClass = "SpatRaster",
+      desc = paste("")
+    ),
     createsOutput(
       objectName = "cohortPools",
       objectClass = "data.table",
@@ -573,7 +583,7 @@ AnnualIncrements <- function(sim){
   
   # spatial unit raster to match data to parameters
   if (!suppliedElsewhere("spuRaster", sim)){
-    
+    browser()
     if (!suppliedElsewhere("spuRasterURL", sim, where = "user")) message(
       "User has not supplied a spatial units raster ('spuRaster' or 'spuRasterURL'). ",
       "Default for Canada will be used.")
@@ -607,22 +617,6 @@ AnnualIncrements <- function(sim){
                                            overwrite = TRUE),
                                 .functionName = "prepInputs_forEcoregionLayer",
                                 userTags = c("prepInputsEcoDistrict_SA", currentModule(sim), cacheTags))
-  }
-  
-  # combine ecoregion in CBM and in LandR
-  if (!suppliedElsewhere("ecoregionRst", sim)){
-    ecoregionLayer <- fixErrors(sim$ecoregionLayer)
-    ecoregionMapSF <- sf::st_as_sf(ecoregionLayer) |>
-      sf::st_transform(crs = sf::st_crs(sim$rasterToMatch))
-    if (!is.null(ecoregionMapSF$ECODISTRIC)) {
-      ecoregionMapSF$ecoregionLayerField <- as.factor(ecoregionMapSF$ECODISTRIC)
-    } else {
-      ecoregionMapSF$ecoregionLayerField <- as.numeric(row.names(ecoregionMapSF))
-    }
-    ecoregionMapSF$ecoregionLayerFieldInt <- as.integer(ecoregionMapSF$ecoregionLayerField)
-    ecoregionRst <- terra::rasterize(ecoregionMapSF, sim$rasterToMatch,
-                                     field = "ecoregionLayerFieldInt")
-    sim$ecoregionRst <- mergeMaps(ecoregionRst, sim$spuRaster)
   }
   
   # 2. NFI params
