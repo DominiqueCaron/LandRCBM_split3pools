@@ -6,7 +6,7 @@ repos <- c("predictiveecology.r-universe.dev", getOption("repos"))
 parameters <- list(
   LandRCBM_split3pools = list(.useCache = ".inputObjects", .plots = "png",
                               .plotInterval = 3)
-  )
+)
 
 modules <- list("LandRCBM_split3pools")
 
@@ -14,10 +14,10 @@ modules <- list("LandRCBM_split3pools")
 split3poolsInit <- simInit(
   params = parameters,
   modules = modules,
-  paths = list(modulePath = "~/Repos/",
-               inputPath = "~/Repos/LandRCBM_split3pools/inputs/",
-               outputPath = "~/Repos/LandRCBM_split3pools/outputs/",
-               cache = "~/Repos/LandRCBM_split3pools/cache/")
-  )
+  paths = list(modulePath = "~/git/",
+               inputPath = "~/git/LandRCBM_split3pools/inputs/",
+               outputPath = "~/git/LandRCBM_split3pools/outputs/",
+               cache = "~/git/LandRCBM_split3pools/cache/")
+)
 
 split3poolsSim <- spades(split3poolsInit)

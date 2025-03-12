@@ -49,7 +49,14 @@ defineModule(sim, list(
       desc = paste("Provides equivalent between provincial boundaries,",
                    "CBM-id for provincial boundaries and CBM-spatial unit ids"),
       sourceURL = "https://drive.google.com/file/d/1xdQt9JB5KRIw72uaN5m3iOk8e34t9dyz"
-    ),    
+    ),       
+    expectsInput("ecoregionLayer", "sf",
+                 desc = paste("A `sf` polygon object that characterizes the unique ecological regions (`ecoregionGroup`) used to",
+                              "parameterize the biomass, cover, and species establishment probability models.",
+                              "It will be overlaid with landcover to generate classes for every ecoregion/LCC combination.",
+                              "It must have same extent and crs as `studyAreaLarge`.",
+                              "It is superseded by `sim$ecoregionRst` if that object is supplied by the user"),
+                 sourceURL = "https://sis.agr.gc.ca/cansis/nsdb/ecostrat/district/ecodistrict_shp.zip"),
     expectsInput(
       ## TODO Yield module will be modified to provide required format
       objectName = "yieldTables", objectClass = "data.table",
@@ -169,7 +176,7 @@ doEvent.LandRCBM_split3pools = function(sim, eventTime, eventType) {
   switch(
     eventType,
     init = {
-
+      
       # split yield tables into AGB pools
       sim <- SplitYieldTables(sim)
       
@@ -191,7 +198,7 @@ doEvent.LandRCBM_split3pools = function(sim, eventTime, eventType) {
       }
     },
     plotYC = {
-
+      
       # plot the yield tables
       sim <- PlotYieldTables(sim)
       
@@ -340,7 +347,7 @@ PlotYieldTables <- function(sim){
         types = P(sim)$.plots,
         filename = paste("yieldCurves"),
         title = paste("Yield curves for", nPlots, "randomly selected pixel groups")
-        )
+  )
   return(invisible(sim))
 }
 
@@ -382,9 +389,9 @@ SplitYieldTables <- function(sim) {
   sim$allInfoYieldTables$B <- sim$allInfoYieldTables$B/100
   
   cumPools <- CBMutils::cumPoolsCreateAGB(allInfoAGBin = sim$allInfoYieldTables,
-                                table6 = sim$table6,
-                                table7 = sim$table7,
-                                pixGroupCol = "yieldPixelGroup")
+                                          table6 = sim$table6,
+                                          table7 = sim$table7,
+                                          pixGroupCol = "yieldPixelGroup")
   
   cbmAboveGroundPoolColNames <- "totMerch|fol|other"
   colNames <- grep(cbmAboveGroundPoolColNames, colnames(cumPools), value = TRUE)
@@ -460,9 +467,9 @@ PlotYieldTablesPools <- function(sim){
         types = P(sim)$.plots,
         filename = "YieldIncrements",
         title = "Increments merch fol other by species and pixel groups"
-        )
-    message(crayon::red("User: please inspect figures of the raw translation of your increments in: ",
-                        figurePath(sim)))
+  )
+  message(crayon::red("User: please inspect figures of the raw translation of your increments in: ",
+                      figurePath(sim)))
   
   return(invisible(sim))
 }
@@ -500,8 +507,8 @@ AnnualIncrements <- function(sim){
   # convert m^2 into tonnes/ha
   sim$allInfoCohortData$B <- sim$allInfoCohortData$B/100
   sim$cohortPools <- CBMutils::cumPoolsCreateAGB(allInfoAGBin = sim$allInfoCohortData,
-                                       table6 = sim$table6,
-                                       table7 = sim$table7)
+                                                 table6 = sim$table6,
+                                                 table7 = sim$table7)
   
   # 4. append the cohortPools of the previous year
   if (time(sim) != start(sim)){
@@ -593,7 +600,7 @@ AnnualIncrements <- function(sim){
                                            archive = asPath("ecodistrict_shp.zip"),
                                            url = extractURL("ecoregionLayer", sim),
                                            alsoExtract = "similar",
-                                           destinationPath = dPath,
+                                           destinationPath = inputPath(sim),
                                            writeTo = NULL,
                                            to = sim$rasterToMatch,
                                            fun = getOption("reproducible.shapefileRead"),
@@ -604,19 +611,18 @@ AnnualIncrements <- function(sim){
   
   # combine ecoregion in CBM and in LandR
   if (!suppliedElsewhere("ecoregionRst", sim)){
-    ecoregionLayer <- fixErrors(ecoregionLayer)
+    ecoregionLayer <- fixErrors(sim$ecoregionLayer)
     ecoregionMapSF <- sf::st_as_sf(ecoregionLayer) |>
-      sf::st_transform(crs = sf::st_crs(rasterToMatch))
+      sf::st_transform(crs = sf::st_crs(sim$rasterToMatch))
     if (!is.null(ecoregionMapSF$ECODISTRIC)) {
       ecoregionMapSF$ecoregionLayerField <- as.factor(ecoregionMapSF$ECODISTRIC)
     } else {
       ecoregionMapSF$ecoregionLayerField <- as.numeric(row.names(ecoregionMapSF))
     }
     ecoregionMapSF$ecoregionLayerFieldInt <- as.integer(ecoregionMapSF$ecoregionLayerField)
-    ecoregionRst <- terra::rasterize(ecoregionMapSF, rasterToMatchLarge,
+    ecoregionRst <- terra::rasterize(ecoregionMapSF, sim$rasterToMatch,
                                      field = "ecoregionLayerFieldInt")
-    browser()
-    ecoregionRst <- mergeMaps(ecoregionRst, sim$spuRaster)
+    sim$ecoregionRst <- mergeMaps(ecoregionRst, sim$spuRaster)
   }
   
   # 2. NFI params
@@ -666,8 +672,8 @@ AnnualIncrements <- function(sim){
                                         overwrite = TRUE)
     sim$yieldSpeciesCodes <- sim$yieldSpeciesCodes[yieldPixelGroup %in% sim$yieldPixelGroupMap[]]
   }
-
-
+  
+  
   #4. Cohort data. Information on biomass for each cohort and pixel group. Gets updated
   # annually.
   if (!suppliedElsewhere("cohortData", sim))
