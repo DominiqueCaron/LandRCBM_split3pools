@@ -57,10 +57,10 @@ defineModule(sim, list(
                               "It must have same extent and crs as `studyAreaLarge`.",
                               "It is superseded by `sim$ecoregionRst` if that object is supplied by the user"),
                  sourceURL = "https://sis.agr.gc.ca/cansis/nsdb/ecostrat/district/ecodistrict_shp.zip"),       
-    expectsInput("ecozone", "sf",
+    expectsInput("ecozones", "sf",
                  desc = paste(""),
                  sourceURL = "http://sis.agr.gc.ca/cansis/nsdb/ecostrat/zone/ecozone_shp.zip"),
-    expectsInput("adminBoundary", "sf",
+    expectsInput("adminBoundaries", "sf",
                  desc = paste(""),
                  sourceURL = "https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lpr_000a21a_e.zip"),
     expectsInput(
@@ -551,16 +551,29 @@ AnnualIncrements <- function(sim){
 
 .inputObjects <- function(sim) {
   cacheTags <- c(currentModule(sim), "function:.inputObjects")
+  browser()
   
   # 1. Spatial information
-  
-  if (!suppliedElsewhere("rasterToMatch", sim)) {
-    sim$rasterToMatch <- prepInputs(
-      url = extractURL("rasterToMatch"),
-      fun = "terra::rast",
+  if (!suppliedElsewhere("studyArea", sim)) {
+    message("StudyArea not provided. Using the default study area: RIA")
+    sa <- prepInputs(
+      url = "https://drive.google.com/file/d/1LxacDOobTrRUppamkGgVAUFIxNT4iiHU/view?usp=sharing",
       destinationPath = inputPath(sim),
+      fun = getOption("reproducible.shapefileRead"),
       overwrite = TRUE
     ) |> Cache()
+    sim$studyArea <- sa[sa$TSA_NUMBER %in% c('08', '16', '24', '40', '41'),] |>
+      sf::st_union() |>
+      Cache()
+  }
+  
+  if (!suppliedElsewhere("rasterToMatch", sim)) {
+    message("rasterToMatch not provided. Will create it from studyArea with a resolution of 250m")
+    sim$rasterToMatch <- prepInputs(url = extractURL("rasterToMatch"),
+                                    destinationPath = inputPath(sim),
+                                    fun = "terra::rast",
+                                    to = sim$studyArea,
+                                    overwrite = TRUE) |> Cache()
   }
   
   # pixel groups from vegetation data that gets updated annually
@@ -568,43 +581,28 @@ AnnualIncrements <- function(sim){
     sim$pixelGroupMap <- prepInputs(url = extractURL("pixelGroupMap"),
                                     destinationPath = inputPath(sim),
                                     fun = "terra::rast",
-                                    rasterToMatch = sim$rasterToMatch,
-                                    useCache = TRUE,
-                                    overwrite = TRUE)
+                                    to = sim$rasterToMatch,
+                                    overwrite = TRUE) |> Cache()
   
   # pixel groups for yield curves
   if (!suppliedElsewhere("yieldPixelGroupMap", sim))
     sim$yieldPixelGroupMap <- prepInputs(url = extractURL("yieldPixelGroupMap"),
                                          destinationPath = inputPath(sim),
                                          fun = "terra::rast",
-                                         rasterToMatch = sim$rasterToMatch,
-                                         useCache = TRUE,
-                                         overwrite = TRUE)
+                                         to = sim$rasterToMatch,
+                                         overwrite = TRUE) |> Cache()
   
-  # spatial unit raster to match data to parameters
-  if (!suppliedElsewhere("spuRaster", sim)){
-    browser()
-    if (!suppliedElsewhere("spuRasterURL", sim, where = "user")) message(
-      "User has not supplied a spatial units raster ('spuRaster' or 'spuRasterURL'). ",
-      "Default for Canada will be used.")
-    
-    spuSF <- prepInputs(
-      destinationPath = inputPath(sim),
-      url         = extractURL("spuRaster"),
-      filename1   = "spUnit_Locator.zip",
-      alsoExtract = "similar",
-      fun         = "sf::st_read",
-      to = sim$rasterToMatch,
-      overwrite      = TRUE
-    ) |> Cache()
-    
-    sim$spuRaster <- terra::rasterize(
-      terra::vect(spuSF),
-      sim$rasterToMatch,
-      field = "spu_id"
-    ) |> Cache()
+  # ecozones: used to link with splitting equations
+  if (!suppliedElsewhere("ecozones", sim)){
+    sim$ecozones <- prepInputs(url = extractURL("ecozones"),
+                               destinationPath = inputPath(sim),
+                               fun = getOption("reproducible.shapefileRead"),
+                               to = sim$studyArea,
+                               cropTo = sim$studyArea,
+                               overwrite = TRUE) |> Cache()
   }
   
+  # ecoregionLayer: the ecoregions used in LandR, by default ecodistricts
   if (!suppliedElsewhere("ecoregionLayer", sim)){
     sim$ecoregionLayer <- Cache(prepInputs(targetFile = "ecodistricts.shp",
                                            archive = asPath("ecodistrict_shp.zip"),
@@ -612,12 +610,26 @@ AnnualIncrements <- function(sim){
                                            alsoExtract = "similar",
                                            destinationPath = inputPath(sim),
                                            writeTo = NULL,
-                                           to = sim$rasterToMatch,
+                                           to = sim$studyArea,
                                            fun = getOption("reproducible.shapefileRead"),
                                            overwrite = TRUE),
                                 .functionName = "prepInputs_forEcoregionLayer",
                                 userTags = c("prepInputsEcoDistrict_SA", currentModule(sim), cacheTags))
   }
+  
+  # adminBoundaries: used 
+  if (!suppliedElsewhere("adminBoundaries", sim)){
+    sim$adminBoundaries <- prepInputs(url = extractURL("adminBoundaries"),
+                                      destinationPath = inputPath(sim),
+                                      fun = getOption("reproducible.shapefileRead"),
+                                      to = sim$studyArea,
+                                      overwrite = TRUE) |> Cache()
+  }
+  
+  # update ecoregionLayer by overlay with CBM spatial units. 
+  ecoregionLayer <-st_intersection(sim$adminBoundaries, sim$ecozones) |>
+    st_intersection(sim$ecoregionLayer)
+  
   
   # 2. NFI params
   if (!suppliedElsewhere("table6", sim)) {
@@ -625,7 +637,7 @@ AnnualIncrements <- function(sim){
                              fun = "data.table::fread",
                              destinationPath = inputPath(sim),
                              filename2 = "appendix2_table6_tb.csv",
-                             overwrite = TRUE)
+                             overwrite = TRUE) |> Cache()
   }
   
   if (!suppliedElsewhere("table7", sim)) {
@@ -633,7 +645,7 @@ AnnualIncrements <- function(sim){
                              fun = "data.table::fread",
                              destinationPath = inputPath(sim),
                              filename2 = "appendix2_table7_tb.csv",
-                             overwrite = TRUE)
+                             overwrite = TRUE) |> Cache()
   }
   
   # 3. CBM and NFI admin
@@ -642,18 +654,18 @@ AnnualIncrements <- function(sim){
                                fun = "data.table::fread",
                                destinationPath = inputPath(sim),
                                filename2 = "cbmAdmin.csv",
-                               overwrite = TRUE)
+                               overwrite = TRUE) |> Cache()
   }
   
   # 3. Yield curve data
   
-  # actual yiel curves
+  # actual yield curves
   if (!suppliedElsewhere("yieldTables", sim)) {
     sim$yieldTables <- prepInputs(url = extractURL("yieldTables"),
                                   fun = "data.table::fread",
                                   destinationPath = inputPath(sim),
                                   filename2 = "yieldTables.csv",
-                                  overwrite = TRUE)
+                                  overwrite = TRUE) |> Cache()
     sim$yieldTables <- sim$yieldTables[yieldPixelGroup %in% sim$yieldPixelGroupMap[]]
   }
   
@@ -663,7 +675,7 @@ AnnualIncrements <- function(sim){
                                         fun = "data.table::fread",
                                         destinationPath = inputPath(sim),
                                         filename2 = "yieldSpeciesCodes.csv",
-                                        overwrite = TRUE)
+                                        overwrite = TRUE) |> Cache()
     sim$yieldSpeciesCodes <- sim$yieldSpeciesCodes[yieldPixelGroup %in% sim$yieldPixelGroupMap[]]
   }
   
@@ -675,7 +687,7 @@ AnnualIncrements <- function(sim){
                                  destinationPath = inputPath(sim),
                                  fun = "data.table::fread",
                                  overwrite = TRUE,
-                                 filename2 = "cohortData.csv")
+                                 filename2 = "cohortData.csv") |> Cache()
   
   # TODO will be used for plotting to keep the same colors of species as in LandR modules
   # if (!suppliedElsewhere("sppColorVect", sim)){
